@@ -56,24 +56,31 @@ jobs:
           echo "::add-mask::$content"
           echo "$content" > ${{ env.projectName }}${{ github.event.inputs.repo-dir }}/local.properties
         
-      - name: setup
+      - name: setup java
         uses: actions/setup-java@v5
         with:
           distribution: "zulu"
           java-version: 11
+
+      - name: verify or generate gradle wrapper
+        run: |
+          cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew not found! Generating a fresh wrapper script..."
+            gradle wrapper
+          fi
+          chmod +x gradlew
           
       - name: build
         if: ${{ github.event.inputs.sign == 'false' || github.event.inputs.sign == false }}
         run: |
           cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
-          chmod +x gradlew
           ./gradlew ${{ github.event.inputs.module }}:assembleRelease
           
       - name: build & sign
         if: ${{ github.event.inputs.sign == 'true' || github.event.inputs.sign == true }}
         run: |
           cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
-          chmod +x gradlew
           ./gradlew ${{ github.event.inputs.module }}:assembleRelease -Pandroid.injected.signing.store.file='${{ github.workspace }}/grab-keystore.jks' -Pandroid.injected.signing.store.password='grab-pwd' -Pandroid.injected.signing.key.alias='sign' -Pandroid.injected.signing.key.password='grab-pwd'
           
       - name: upload
