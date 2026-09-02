@@ -44,12 +44,19 @@ jobs:
 
       - name: Auto-Detect Real Android Directory
         run: |
+          echo "=== Repository Structure Overview ==="
+          ls -R || true
+          
           echo "Searching for build.gradle files..."
-          # Look for the closest directory containing build.gradle that isn't the root
-          REAL_PATH=$(find . -maxdepth 3 -name "build.gradle" -o -name "build.gradle.kts" | head -n 1 | xargs dirname)
-          if [ -z "$REAL_PATH" ] || [ "$REAL_PATH" = "." ]; then
+          # Find a build file safely without letting xargs crash on empty results
+          FOUND_FILE=$(find . -name "build.gradle" -o -name "build.gradle.kts" | head -n 1)
+          
+          if [ -n "$FOUND_FILE" ]; then
+            REAL_PATH=$(dirname "$FOUND_FILE")
+          else
             REAL_PATH="./${{ env.projectName }}${{ github.event.inputs.repo-dir }}"
           fi
+          
           echo "Setting working directory to: $REAL_PATH"
           echo "TARGET_WORK_DIR=$REAL_PATH" >> $GITHUB_ENV
           
