@@ -79,12 +79,12 @@ jobs:
           }
           EOF
           
-          # 4. Android Manifest File
+          # 4. Corrected Android Manifest File with explicit Package key
           cat << 'EOF' > rentloop_sandbox/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://android.com">
+          <manifest xmlns:android="http://android.com" package="com.sabithahamed.rentloop">
               <application android:allowBackup="true" android:label="RentLoop" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light">
-                  <activity android:name=".MainActivity" android:exported="true">
+                  <activity android:name="com.sabithahamed.rentloop.MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -126,7 +126,7 @@ jobs:
       - name: Compile Guaranteed APK Asset
         run: |
           cd rentloop_sandbox
-          ./gradlew :app:assembleRelease -Pandroid.injected.signing.store.file='${{ github.workspace }}/grab-keystore.jks' -Pandroid.injected.signing.store.password='grab-pwd' -Pandroid.injected.signing.key.alias='sign' -Pandroid.injected.signing.key.password='grab-pwd' || ./gradlew :app:assembleDebug
+          ./gradlew :app:assembleDebug
 
       - name: Move and Isolate Output Packages
         run: |
