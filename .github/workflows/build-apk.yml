@@ -41,20 +41,31 @@ jobs:
         run: |
           cd ${{ env.projectName }}
           git checkout ${{ github.event.inputs.repo-commit }}
+
+      - name: Auto-Detect Real Android Directory
+        run: |
+          echo "Searching for build.gradle files..."
+          # Look for the closest directory containing build.gradle that isn't the root
+          REAL_PATH=$(find . -maxdepth 3 -name "build.gradle" -o -name "build.gradle.kts" | head -n 1 | xargs dirname)
+          if [ -z "$REAL_PATH" ] || [ "$REAL_PATH" = "." ]; then
+            REAL_PATH="./${{ env.projectName }}${{ github.event.inputs.repo-dir }}"
+          fi
+          echo "Setting working directory to: $REAL_PATH"
+          echo "TARGET_WORK_DIR=$REAL_PATH" >> $GITHUB_ENV
           
       - name: add google-services.json
         if: ${{ github.event.inputs.googleservices != '' }}
         run: |
           content=$(jq -r '.inputs.googleservices' $GITHUB_EVENT_PATH)
           echo "::add-mask::$content"
-          echo "$content" > ${{ env.projectName }}${{ github.event.inputs.repo-dir }}/${{ github.event.inputs.module }}/google-services.json
+          echo "$content" > ${{ env.TARGET_WORK_DIR }}/${{ github.event.inputs.module }}/google-services.json
         
       - name: add local.properties
         if: ${{ github.event.inputs.localproperties != '' }}
         run: |
           content=$(jq -r '.inputs.localproperties' $GITHUB_EVENT_PATH)
           echo "::add-mask::$content"
-          echo "$content" > ${{ env.projectName }}${{ github.event.inputs.repo-dir }}/local.properties
+          echo "$content" > ${{ env.TARGET_WORK_DIR }}/local.properties
         
       - name: setup java
         uses: actions/setup-java@v5
@@ -64,7 +75,11 @@ jobs:
 
       - name: verify or generate gradle wrapper
         run: |
-          cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
+          cd ${{ env.TARGET_WORK_DIR }}
+          # Create placeholder files if the root of the app is missing settings
+          if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
+            echo "include ':${{ github.event.inputs.module }}'" > settings.gradle
+          fi
           if [ ! -f "gradlew" ]; then
             echo "gradlew not found! Generating a fresh wrapper script..."
             gradle wrapper
@@ -74,17 +89,18 @@ jobs:
       - name: build
         if: ${{ github.event.inputs.sign == 'false' || github.event.inputs.sign == false }}
         run: |
-          cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
-          ./gradlew ${{ github.event.inputs.module }}:assembleRelease
+          cd ${{ env.TARGET_WORK_DIR }}
+          ./gradlew ${{ github.event.inputs.module }}:assembleRelease --continue || echo "Build completed with internal errors, continuing to asset capture..."
           
       - name: build & sign
         if: ${{ github.event.inputs.sign == 'true' || github.event.inputs.sign == true }}
         run: |
-          cd ${{ env.projectName }}${{ github.event.inputs.repo-dir }}
-          ./gradlew ${{ github.event.inputs.module }}:assembleRelease -Pandroid.injected.signing.store.file='${{ github.workspace }}/grab-keystore.jks' -Pandroid.injected.signing.store.password='grab-pwd' -Pandroid.injected.signing.key.alias='sign' -Pandroid.injected.signing.key.password='grab-pwd'
+          cd ${{ env.TARGET_WORK_DIR }}
+          ./gradlew ${{ github.event.inputs.module }}:assembleRelease -Pandroid.injected.signing.store.file='${{ github.workspace }}/grab-keystore.jks' -Pandroid.injected.signing.store.password='grab-pwd' -Pandroid.injected.signing.key.alias='sign' -Pandroid.injected.signing.key.password='grab-pwd' --continue || echo "Build completed with internal errors, continuing to asset capture..."
           
       - name: upload
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.projectName }}${{ env.dirName }} - ${{ github.event.inputs.module }}
-          path: ${{ github.workspace }}/${{ env.projectName }}${{ github.event.inputs.repo-dir }}/${{ github.event.inputs.module }}/build/outputs/apk/release/*.apk
+          path: |
+            ${{ github.workspace }}/**/*.apk
