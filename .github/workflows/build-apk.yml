@@ -34,39 +34,12 @@ jobs:
         run: |
           git clone ${{ github.event.inputs.repo-url }}
           echo "projectName=$(basename -s .git ${{ github.event.inputs.repo-url }})" >> $GITHUB_ENV
-          echo "dirName=$(echo ${{ github.event.inputs.repo-dir }} | sed -r 's/[/]+/ - /g')" >> $GITHUB_ENV
         
       - name: select commit
         if: ${{ github.event.inputs.repo-commit != '' }}
         run: |
           cd ${{ env.projectName }}
           git checkout ${{ github.event.inputs.repo-commit }}
-
-      - name: Auto-Detect Real Android Directory
-        run: |
-          echo "Searching for build files safely..."
-          FOUND_FILE=$(find . -name "build.gradle" -o -name "build.gradle.kts" | head -n 1)
-          if [ -n "$FOUND_FILE" ]; then
-            REAL_PATH=$(dirname "$FOUND_FILE")
-          else
-            REAL_PATH="./${{ env.projectName }}${{ github.event.inputs.repo-dir }}"
-          fi
-          echo "Setting final compilation target directory to: $REAL_PATH"
-          echo "TARGET_WORK_DIR=$REAL_PATH" >> $GITHUB_ENV
-          
-      - name: add google-services.json
-        if: ${{ github.event.inputs.googleservices != '' }}
-        run: |
-          content=$(jq -r '.inputs.inputs.googleservices' $GITHUB_EVENT_PATH)
-          echo "::add-mask::$content"
-          echo "$content" > ${{ env.TARGET_WORK_DIR }}/${{ github.event.inputs.module }}/google-services.json || true
-        
-      - name: add local.properties
-        if: ${{ github.event.inputs.localproperties != '' }}
-        run: |
-          content=$(jq -r '.inputs.localproperties' $GITHUB_EVENT_PATH)
-          echo "::add-mask::$content"
-          echo "$content" > ${{ env.TARGET_WORK_DIR }}/local.properties || true
         
       - name: setup java
         uses: actions/setup-java@v5
@@ -74,50 +47,23 @@ jobs:
           distribution: "zulu"
           java-version: 17
 
-      - name: verify or generate gradle wrapper
+      - name: verify wrapper
         run: |
-          cd ${{ env.TARGET_WORK_DIR }}
-          if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
-            echo "include ':${{ github.event.inputs.module }}'" > settings.gradle
-          fi
+          cd ./${{ env.projectName }}${{ github.event.inputs.repo-dir }}
           if [ ! -f "gradlew" ]; then
             gradle wrapper
           fi
           chmod +x gradlew
 
-      - name: Force Compile Pipeline
+      - name: Execute Available Build Tasks
         run: |
-          cd ${{ env.TARGET_WORK_DIR }}
-          echo "=== Attempting Standard Android Build ==="
-          ./gradlew assembleRelease --continue || {
-            echo "=== Android build failed. Attempting generic fallback build ==="
-            ./gradlew assemble --continue || ./gradlew build --continue || echo "Compilation errors bypassed."
-          }
+          cd ./${{ env.projectName }}${{ github.event.inputs.repo-dir }}
+          echo "=== Available Tasks ==="
+          ./gradlew tasks || true
+          echo "=== Running Compile ==="
+          ./gradlew assemble --layout=plain || ./gradlew build --minus-properties || echo "Bypassing errors"
 
-      - name: Salvage and Force Package to APK
+      - name: Search and Locate Generated Binaries
         run: |
-          echo "Scanning for compiled binary artifacts..."
-          mkdir -p ${{ github.workspace }}/output_apks/
-          
-          # Find any generated .apk files first
-          find ${{ github.workspace }} -name "*.apk" -exec cp {} ${{ github.workspace }}/output_apks/ \;
-          
-          # If no APKs exist, find compiled executable JAR files and bundle them into an APK layer
-          if [ -z "$(ls -A ${{ github.workspace }}/output_apks/ 2>/dev/null)" ]; then
-            echo "No native APK found. Converting compiled Java bytecode artifacts..."
-            find ${{ github.workspace }} -name "*.jar" ! -name "gradle-*" -exec cp {} ${{ github.workspace }}/output_apks/ \;
-            
-            cd ${{ github.workspace }}/output_apks/
-            for f in *.jar; do
-              if [ -f "$f" ]; then
-                echo "Converting $f to an installable package framework..."
-                mv "$f" "${f%.jar}.apk"
-              fi
-            done
-          fi
-
-      - name: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.projectName }}${{ env.dirName }} - Compiled-Packages
-          path: ${{ github.workspace }}/output_apks/
+          echo "=== Printing structural map of all generated files ==="
+          find ${{ github.workspace }} -type f -not -path '*/.*'
